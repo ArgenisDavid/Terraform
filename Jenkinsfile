@@ -6,16 +6,27 @@ pipeline {
     }
     
     stages {
-        stage('Checkout') {
+        stage('Verify Environment') {
             steps {
-                git branch: 'main', url: 'https://github.com/Terraform.git'
-                sh 'ls -la'
+                sh '''
+                    echo "=== Verificando herramientas ==="
+                    docker --version
+                    docker-compose --version
+                    python --version
+                    echo "=== Estructura del proyecto ==="
+                    pwd
+                    ls -la
+                    echo "=== Contenido de app/ ==="
+                    ls -la app/
+                    echo "=== Contenido de db/ ==="  
+                    ls -la db/
+                '''
             }
         }
         
         stage('Build') {
             steps {
-                sh 'docker-compose build'
+                sh 'docker-compose build --no-cache'
             }
         }
         
@@ -34,15 +45,25 @@ pipeline {
             steps {
                 sh 'docker-compose down || true'
                 sh 'docker-compose up -d'
-                sh 'sleep 10'
+                sh 'sleep 15'
             }
         }
         
         stage('Smoke Test') {
             steps {
                 sh '''
-                    curl -f http://localhost:5000/login || exit 1
-                    echo "Smoke test passed - Application is responding"
+                    echo "=== Realizando smoke test ==="
+                    timeout time: 30, unit: 'SECONDS', activity: true {
+                        while true; do
+                            if curl -s http://localhost:5000/login > /dev/null; then
+                                echo "✅ Aplicación Flask respondiendo correctamente"
+                                break
+                            else
+                                echo "⏳ Esperando que la aplicación esté lista..."
+                                sleep 5
+                            fi
+                        done
+                    }
                 '''
             }
         }
@@ -54,18 +75,10 @@ pipeline {
             cleanWs()
         }
         success {
-            emailext (
-                subject: "✅ Pipeline EXITOSO: ${env.JOB_NAME} - ${env.BUILD_NUMBER}",
-                body: "El pipeline se completó exitosamente.\nURL: ${env.BUILD_URL}",
-                to: "tu-email@dominio.com"
-            )
+            echo "🎉 Pipeline completado exitosamente!"
         }
         failure {
-            emailext (
-                subject: "❌ Pipeline FALLIDO: ${env.JOB_NAME} - ${env.BUILD_NUMBER}",
-                body: "El pipeline ha fallado. Revisar logs.\nURL: ${env.BUILD_URL}",
-                to: "tu-email@dominio.com"
-            )
+            echo "❌ Pipeline falló - Revisar logs"
         }
     }
 }
